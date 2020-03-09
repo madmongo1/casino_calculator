@@ -47,6 +47,12 @@ struct scenario_result : outcome {
       -> std::ostream & {
     return os << sr.action << " : pays " << sr.payoff();
   }
+
+  void double_down()
+  {
+      invested *= 2;
+      returned *= 2;
+  }
 };
 
 struct scenario {
@@ -154,7 +160,7 @@ struct scenario {
       auto &res = possible_results.push_back(
           scenario_result(player_action::double_down));
       res.update(hit_player_once(s, p, d));
-      res *= 2;
+      res.double_down();
     }
     /*
     if (r.may_split(p))
