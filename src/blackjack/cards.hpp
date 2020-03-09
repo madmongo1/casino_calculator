@@ -98,6 +98,21 @@ struct cards {
 
   void add(card_scale cs, std::size_t n = 1) { store_[to_index(cs)] += n; }
 
+  cards& operator-=(card_scale c)
+  {
+    auto& x = this->operator[](c);
+    assert(x > 0);
+    --x;
+    return *this;
+  }
+
+  cards& operator+=(card_scale c)
+  {
+    auto& x = this->operator[](c);
+    ++x;
+    return *this;
+  }
+
 private:
   friend auto operator<<(std::ostream &os, cards const &c) -> std::ostream & {
     auto sep = "";
@@ -125,6 +140,26 @@ private:
 
 protected:
   std::array<int, nof_card_scales> store_;
+};
+
+struct draw_probability
+{
+  draw_probability(cards c) : cards_(std::move(c)) {}
+
+  double update(card_scale cs)
+  {
+    if (auto cc = cards_.count(cs))
+    {
+      cards_ -= cs;
+      return double(cc) / double(cards_.count());
+    }
+    else
+    {
+      return 0;
+    }
+  }
+
+  cards cards_;
 };
 
 } // namespace blackjack

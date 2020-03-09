@@ -45,8 +45,7 @@ struct scenario_result : outcome {
 
   friend auto operator<<(std::ostream &os, scenario_result const &sr)
       -> std::ostream & {
-    return os << sr.action << " : pays " << sr.payoff << " : prob "
-              << sr.probability;
+    return os << sr.action << " : pays " << sr.payoff();
   }
 };
 
@@ -67,7 +66,7 @@ struct scenario {
 
     auto result = *first++;
     while (first != last) {
-      if (first->payoff > result.payoff)
+      if (first->payoff() > result.payoff())
         result = *first;
       ++first;
     }
@@ -93,13 +92,16 @@ struct scenario {
 
     auto scale = 1.0 / double(total_cards_in_shoe);
 
+    double invested = 0.0;
     double pay = 0.0;
     for (auto &&o : outcomes) {
-      pay += o.payoff * o.probability;
+      invested += o.invested * o.probability;
+      pay += o.returned * o.probability;
     }
+    invested *= scale;
     pay *= scale;
 
-    return outcome{.payoff = pay, .probability = 1.0};
+    return outcome(invested, pay);
   }
 
   inline auto run(shoe const &s, player_hand const &p, dealer_hand const &d)
@@ -157,13 +159,16 @@ struct scenario {
 
       auto scale = 1.0 / double(total_cards_in_shoe);
 
+      double invested = 0.0;
       double pay = 0.0;
       for (auto &&o : outcomes) {
-        pay += o.payoff * o.probability;
+        invested += o.invested * o.probability;
+        pay += o.returned * o.probability;
       }
+      invested *= scale;
       pay *= scale;
 
-      auto result = outcome{.payoff = pay, .probability = 1.0};
+      auto result = outcome(invested, pay);
       memo_.emplace(key, result);
       return result;
     };
@@ -174,8 +179,7 @@ struct scenario {
       return accumulated_deal_one();
     }
     case dealer_action::stand: {
-      return outcome{.payoff = rules_.payoff(player_score, dealer_score),
-                     .probability = 1.0};
+      return outcome(1, rules_.payoff(player_score, dealer_score));
     }
     }
     assert(!"logic error");

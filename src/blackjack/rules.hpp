@@ -97,8 +97,8 @@ struct rules
     {
         switch (res)
         {
-        case result::player_blackjack:return 2.5;
-        case result::player_win:return 2.0;
+        case result::player_blackjack:return 1.0 + 1.5;
+        case result::player_win:return 1.0 + 1.0;
         case result::dealer_win:return 0.0;
         case result::draw:return 1.0;
         }
@@ -129,7 +129,8 @@ struct rules
     bool
     may_hit(player_hand const &player) const
     {
-        return not score(player).bust();
+      auto s = score(player);
+      return not s.blackjack() and not s.bust();
     }
 
     bool
