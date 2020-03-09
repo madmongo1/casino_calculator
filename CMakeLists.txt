@@ -11,3 +11,6 @@ file(GLOB_RECURSE SRC_FILES LIST_DIRECTORIES false CONFIGURE_DEPENDS
     "src/*.cpp" "src/*.hpp")
 
 add_executable(blackjack main.cpp ${SRC_FILES})
+
+find_package(Boost REQUIRED)
+target_link_libraries(blackjack PUBLIC Boost::boost)
