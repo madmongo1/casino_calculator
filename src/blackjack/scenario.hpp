@@ -81,6 +81,39 @@ struct scenario
         return result;
     }
 
+    static auto hit_player(        rules const &r,
+                                   shoe const& s,
+                                   player_hand const& p,
+                                   dealer_hand const &d) -> outcome
+    {
+        polyfill::static_vector<outcome, nof_card_scales> outcomes;
+        int total_cards_in_shoe = 0;
+        for (std::size_t i = 0; i < nof_card_scales; ++i)
+        {
+            auto avail = s[to_card_scale(i)];
+            if (avail)
+            {
+                total_cards_in_shoe += avail;
+
+                auto s2 = s;
+                auto p2 = p;
+                deal_one(s2, p2, to_card_scale(i));
+                outcomes.push_back(dealers_turn(r, s2, score(p2), d) * double(avail));
+            }
+        }
+
+        auto scale = 1.0 / double(total_cards_in_shoe);
+
+        double pay = 0.0;
+        for (auto &&o : outcomes)
+        {
+            pay += o.payoff * o.probability;
+        }
+        pay *= scale;
+
+        return outcome{.payoff = pay, .probability = 1.0};
+    }
+
     inline
     static auto
     run(
@@ -96,9 +129,12 @@ struct scenario
             auto &res = possible_results.push_back(scenario_result(player_action::stick));
             res.update(dealers_turn(r, s, score(p), d));
         }
-        /*
         if (r.may_hit(p))
-            possible_results.push_back(scenario_result(player_action::hit));
+        {
+            auto& res = possible_results.push_back(scenario_result(player_action::hit));
+            res.update(hit_player(r, s, p, d));
+        }
+        /*
         if (r.may_double(p))
             possible_results.push_back(scenario_result(player_action::double_down));
         if (r.may_split(p))
