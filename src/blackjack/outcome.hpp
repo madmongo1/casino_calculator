@@ -21,7 +21,8 @@ struct outcome {
     return *this;
   }
 
-  double payoff() const { return (returned - invested) / invested; }
+  double pnl() const { return returned - invested; }
+  double payoff() const { return pnl() / invested; }
 
   double invested;
   double returned;

@@ -66,7 +66,7 @@ struct scenario {
 
     auto result = *first++;
     while (first != last) {
-      if (first->payoff() > result.payoff())
+      if (first->pnl() > result.pnl())
         result = *first;
       ++first;
     }
@@ -104,6 +104,36 @@ struct scenario {
     return outcome(invested, pay);
   }
 
+  auto hit_player_once(shoe const &s, player_hand const &p, dealer_hand const &d)
+  -> outcome {
+    polyfill::static_vector<outcome, nof_card_scales> outcomes;
+    int total_cards_in_shoe = 0;
+    for (std::size_t i = 0; i < nof_card_scales; ++i) {
+      auto avail = s[to_card_scale(i)];
+      if (avail) {
+        total_cards_in_shoe += avail;
+
+        auto s2 = s;
+        auto p2 = p;
+        deal_one(s2, p2, to_card_scale(i));
+        outcomes.push_back(dealers_turn(s2, score(p2), d) * double(avail));
+      }
+    }
+
+    auto scale = 1.0 / double(total_cards_in_shoe);
+
+    double invested = 0.0;
+    double pay = 0.0;
+    for (auto &&o : outcomes) {
+      invested += o.invested * o.probability;
+      pay += o.returned * o.probability;
+    }
+    invested *= scale;
+    pay *= scale;
+
+    return outcome(invested, pay);
+  }
+
   inline auto run(shoe const &s, player_hand const &p, dealer_hand const &d)
       -> scenario_result {
     auto possible_results = polyfill::static_vector<scenario_result, 4>();
@@ -117,9 +147,13 @@ struct scenario {
           possible_results.push_back(scenario_result(player_action::hit));
       res.update(hit_player(s, p, d));
     }
+    if (rules_.may_double(p)) {
+      auto &res = possible_results.push_back(
+          scenario_result(player_action::double_down));
+      res.update(hit_player_once(s, p, d));
+      res *= 2;
+    }
     /*
-    if (r.may_double(p))
-        possible_results.push_back(scenario_result(player_action::double_down));
     if (r.may_split(p))
         possible_results.push_back(scenario_result(player_action::split));
 */
@@ -136,8 +170,7 @@ struct scenario {
                     dealer_hand const &d) -> outcome {
     auto key = std::tie(player_score, d, s);
     auto imemo = memo_.find(key);
-    if (imemo != memo_.end())
-    {
+    if (imemo != memo_.end()) {
       return imemo->second;
     }
 
