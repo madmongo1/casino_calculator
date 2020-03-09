@@ -29,6 +29,18 @@ struct player_hand
             result.reset();
         return result;
     }
+
+    bool after_split() const
+    {
+        return after_split_;
+    }
+
+    void set_after_split(bool f = true)
+    {
+        after_split_ = f;
+    }
+
+    bool after_split_ = false;
 };
 
 }

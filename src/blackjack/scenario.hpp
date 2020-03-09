@@ -58,6 +58,9 @@ struct scenario_result : outcome {
 struct scenario {
   using result_vector = polyfill::static_vector<scenario_result, 4>;
 
+  using player_key = std::tuple<player_hand, dealer_hand, shoe>;
+  using player_memo_map = std::unordered_map<player_key, scenario_result, polyfill::universal_hash, polyfill::universal_equal_to>;
+
   using memo_key = std::tuple<score, dealer_hand, shoe>;
   using memo_map =
       std::unordered_map<memo_key, outcome, polyfill::universal_hash,
@@ -143,31 +146,38 @@ struct scenario {
   inline auto run(shoe const &s, player_hand const &p, dealer_hand const &d)
       -> scenario_result {
 
-    auto possible_results = polyfill::static_vector<scenario_result, 4>();
+      auto key = std::tie(p, d, s);
+      auto imemo = player_memo_.find(key);
+      if (imemo == player_memo_.end())
+      {
+          auto possible_results = polyfill::static_vector<scenario_result, 4>();
 
-    if (rules_.may_stick(p)) {
-      auto &res =
-          possible_results.push_back(scenario_result(player_action::stick));
-      res.update(dealers_turn(s, score(p), d));
-    }
+          if (rules_.may_stick(p)) {
+              auto &res =
+                  possible_results.push_back(scenario_result(player_action::stick));
+              res.update(dealers_turn(s, score(p), d));
+          }
 
-    if (rules_.may_hit(p)) {
-      auto &res =
-          possible_results.push_back(scenario_result(player_action::hit));
-      res.update(hit_player(s, p, d));
-    }
-    if (rules_.may_double(p)) {
-      auto &res = possible_results.push_back(
-          scenario_result(player_action::double_down));
-      res.update(hit_player_once(s, p, d));
-      res.double_down();
-    }
-    /*
-    if (r.may_split(p))
-        possible_results.push_back(scenario_result(player_action::split));
-*/
+          if (rules_.may_hit(p)) {
+              auto &res =
+                  possible_results.push_back(scenario_result(player_action::hit));
+              res.update(hit_player(s, p, d));
+          }
+          if (rules_.may_double(p)) {
+              auto &res = possible_results.push_back(
+                  scenario_result(player_action::double_down));
+              res.update(hit_player_once(s, p, d));
+              res.double_down();
+          }
+          /*
+          if (r.may_split(p))
+              possible_results.push_back(scenario_result(player_action::split));
+      */
 
-    return best_of(possible_results);
+          imemo = player_memo_.emplace(key, best_of(possible_results)).first;
+      }
+
+      return imemo->second;
   }
 
   auto deal_one(shoe &s, hand &d, card_scale cs) -> void {
@@ -230,6 +240,8 @@ struct scenario {
 
   rules const &rules_;
   memo_map memo_;
+
+  player_memo_map player_memo_;
 };
 
 } // namespace blackjack
