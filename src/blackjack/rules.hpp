@@ -58,6 +58,7 @@ operator<<(
 
 struct rules
 {
+    bool allow_double_after_split = true;
 
     auto
     compute_result(
@@ -136,6 +137,9 @@ struct rules
     bool
     may_double(player_hand const &player) const
     {
+        if (allow_double_after_split and player.count() == 1)
+            return true;
+
         return may_hit(player);
     }
 

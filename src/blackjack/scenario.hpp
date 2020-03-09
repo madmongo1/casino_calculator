@@ -136,12 +136,15 @@ struct scenario {
 
   inline auto run(shoe const &s, player_hand const &p, dealer_hand const &d)
       -> scenario_result {
+
     auto possible_results = polyfill::static_vector<scenario_result, 4>();
+
     if (rules_.may_stick(p)) {
       auto &res =
           possible_results.push_back(scenario_result(player_action::stick));
       res.update(dealers_turn(s, score(p), d));
     }
+
     if (rules_.may_hit(p)) {
       auto &res =
           possible_results.push_back(scenario_result(player_action::hit));
