@@ -47,14 +47,22 @@ struct shoe
         std::ostream &os,
         shoe const &s)
     {
-        const char *sep = "";
-        for (auto c : all_card_faces())
+        const char* sep = "";
+        for (auto i = nof_card_scales ; i-- ; )
         {
-            os << sep << c << " : " << s.count(c) << " (" << polyfill::percentage(s.probability(c)) << ')';
-            sep = "\n";
+            auto card = to_card_scale(i);
+            auto cnt = s.count(card);
+            if (cnt)
+            {
+                os << sep << card << "x" << s.count(card)
+                << '(' << polyfill::percentage(s.probability(card)) << ')';
+                sep = ", ";
+            }
         }
-        os << "\ncards behind cut      : " << s.cards_behind_cut
-           << "\ncards until exhausted : " << (s.count() - s.cards_behind_cut);
+
+        os << sep << s.cards_behind_cut;
+        sep = ">";
+        os << sep << (s.count() - s.cards_behind_cut);
         return os;
     }
 

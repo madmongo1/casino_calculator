@@ -1,5 +1,6 @@
 #include <blackjack/scenario.hpp>
 #include <iostream>
+#include <fstream>
 
 #include "blackjack/rules.hpp"
 #include "blackjack/shoe.hpp"
@@ -53,7 +54,8 @@ iterate_all(
                 accum += one(to_card_scale(p1), to_card_scale(p2), to_card_scale(d));
 }
 
-void play(rules const& r)
+void
+play(rules const &r)
 {
     auto s = scenario(r);
     auto burn_pile = blackjack::cards();
@@ -64,7 +66,7 @@ void play(rules const& r)
     auto player = player_hand();
     auto dealer = dealer_hand();
 
-    while(1)
+    while (1)
     {
         std::cout << "enter command, ? for help: " << std::flush;
         std::string command;
@@ -77,24 +79,27 @@ void play(rules const& r)
                          "\n  pd = peek into the discard pile"
                          "\n  play = play a random hand"
                          "\n  why = ask for an explanation of the play suggestion"
+                         "\n  whylog = ask for an explanation placed in a file called why.txt"
+                         "\n  quit = quit the game"
                          "\n";
             continue;
         }
-        else if(boost::iequals(command, "ps"))
+        else if (boost::iequals(command, "ps"))
         {
             std::cout << dealer_shoe << std::endl;
             continue;
         }
-        else if(boost::iequals(command, "pd"))
+        else if (boost::iequals(command, "pd"))
         {
             std::cout << burn_pile << std::endl;
         }
-        else if(boost::iequals(command, "play"))
+        else if (boost::iequals(command, "play"))
         {
             burn_pile += std::move(dealer);
             burn_pile += std::move(player);
-            auto deal_to = [&](auto&& prefix, cards& hand)
-            {
+            auto deal_to = [&](
+                auto &&prefix,
+                cards &hand) {
                 std::cout << prefix;
                 if (dealer_shoe.exhausted())
                 {
@@ -124,6 +129,23 @@ void play(rules const& r)
                 s.run(dealer_shoe, player, dealer, burn_pile);
                 s.chat(nullptr);
             }
+        }
+        else if (boost::iequals(command, "whylog"))
+        {
+            auto log = std::ofstream("why.txt");
+
+            log << "shoe        : " << dealer_shoe
+                << "\nburn pile   : " << burn_pile
+                << "\nplayer hand : " << player
+                << "\ndealer hand : " << dealer
+                << '\n';
+            s.chat(&log);
+            s.run(dealer_shoe, player, dealer, burn_pile);
+            s.chat(nullptr);
+        }
+        else if (boost::iequals(command, "quit"))
+        {
+            break;
         }
     }
 }

@@ -123,8 +123,7 @@ struct scenario
                 deal_one(s2, p2, c);
                 auto scr = score(p2);
                 chatter(ctx, "deal ", c, " with chance ", polyfill::percentage(prob), " scores ", scr);
-                auto handle_score = [&]() -> outcome
-                {
+                auto handle_score = [&]() -> outcome {
                     if (!scr.bust())
                     {
                         auto o = run_impl(ctx, s2, p2, d, burn_pile);
@@ -166,24 +165,28 @@ struct scenario
         cards burn_pile)
     -> outcome
     {
+        const char* shuffle_msg = "";
         if (s.exhausted())
-            s += std::move(burn_pile);
+        {
+            s += burn_pile;
+            burn_pile.clear();
+            shuffle_msg = "shuffle...";
+        }
         polyfill::static_vector<outcome, nof_card_scales> outcomes;
-        int total_cards_in_shoe = 0;
         for (auto c : all_card_faces())
         {
+            auto prob = s.probability(c);
+            auto ctx = context(c);
+            chatter(ctx, shuffle_msg, "draw ", c, " probability ", polyfill::percentage(prob));
             if (auto avail = s[c];avail)
             {
-                total_cards_in_shoe += avail;
-
                 auto s2 = s;
                 auto p2 = p;
                 deal_one(s2, p2, c);
-                outcomes.push_back(dealers_turn(s2, score(p2), d, burn_pile) * double(avail));
+                outcomes.push_back(dealers_turn(s2, score(p2), d, burn_pile) * prob);
+                chatter(ctx, "result: ", outcomes.back());
             }
         }
-
-        auto scale = 1.0 / double(total_cards_in_shoe);
 
         double invested = 0.0;
         double pay = 0.0;
@@ -192,23 +195,22 @@ struct scenario
             invested += o.invested * o.probability;
             pay += o.returned * o.probability;
         }
-        invested *= scale;
-        pay *= scale;
-
         return outcome(invested, pay);
     }
 
     struct context;
 
-    inline auto run_impl(context const& ctx,
+    inline auto
+    run_impl(
+        context const &ctx,
         shoe const &s,
-                         player_hand const &p,
-                         dealer_hand const &d,
-                         cards const &burn_pile)
-                         -> scenario_result
+        player_hand const &p,
+        dealer_hand const &d,
+        cards const &burn_pile)
+    -> scenario_result
     {
         auto key = std::tie(p, d, s, burn_pile);
-        auto imemo = chat_ ? player_memo_.end() : player_memo_.find(key);
+        auto imemo = player_memo_.find(key);
         if (imemo == player_memo_.end())
         {
             auto possible_results = polyfill::static_vector<scenario_result, 4>();
@@ -248,6 +250,11 @@ struct scenario
         */
 
             imemo = player_memo_.emplace(key, best_of(possible_results)).first;
+            chatter(ctx, "result: ", imemo->second);
+        }
+        else
+        {
+            chatter(ctx, "cached result: ", imemo->second);
         }
 
         return imemo->second;
@@ -276,42 +283,43 @@ struct scenario
     }
 
     auto
-    dealers_turn(
+    dealers_turn_impl(
+        context const &last_ctx,
         shoe const &s,
         score const &player_score,
         dealer_hand const &d,
         cards const &burn_pile) -> outcome
     {
-        auto key = std::tie(player_score, d, s, burn_pile);
-        auto imemo = memo_.find(key);
-        if (imemo != memo_.end())
-        {
-            return imemo->second;
-        }
-
         auto accumulated_deal_one = [&] {
             polyfill::static_vector<outcome, nof_card_scales> outcomes;
             int total_cards_in_shoe = 0;
-            for (std::size_t i = 0; i < nof_card_scales; ++i)
+            for (auto card : all_card_faces())
             {
-                auto avail = s[to_card_scale(i)];
-                if (avail)
+                auto prob = s.probability(card);
+                if (auto avail = s[card];avail)
                 {
-                    total_cards_in_shoe += avail;
-
                     auto bp2 = burn_pile;
                     auto s2 = s;
+                    const char* exhaust = "";
                     if (s2.exhausted())
-                        s2 += std::move(bp2);
+                    {
+                        s2 += bp2;
+                        bp2.clear();
+                        exhaust = "reshuffle...";
+                    }
                     auto d2 = d;
-                    deal_one(s2, d2, to_card_scale(i));
-                    outcomes.push_back(dealers_turn(s2, player_score, d2, bp2) *
-                                       double(avail));
+                    deal_one(s2, d2, card);
+                    auto ctx = context(to_char(card));
+                    chatter(ctx, exhaust, "dealer draws ", card, " with probability ", polyfill::percentage(prob));
+                    outcomes.push_back(dealers_turn_impl(ctx, s2, player_score, d2, bp2) *
+                                       prob);
+                    chatter(ctx, "outcome: ", outcomes.back());
+                }
+                else
+                {
+                    chatter(last_ctx, "no ", card, " in shoe");
                 }
             }
-
-            auto scale = 1.0 / double(total_cards_in_shoe);
-
             double invested = 0.0;
             double pay = 0.0;
             for (auto &&o : outcomes)
@@ -319,14 +327,10 @@ struct scenario
                 invested += o.invested * o.probability;
                 pay += o.returned * o.probability;
             }
-            invested *= scale;
-            pay *= scale;
 
             auto result = outcome(invested, pay);
-            memo_.emplace(key, result);
             return result;
         };
-
         auto dealer_score = score(d);
         switch (rules_.select_dealer_action(dealer_score))
         {
@@ -336,6 +340,7 @@ struct scenario
         }
         case dealer_action::stand:
         {
+            chatter(last_ctx, "dealer stands on ", dealer_score);
             return outcome(1, rules_.payoff(player_score, dealer_score));
         }
         }
@@ -343,16 +348,47 @@ struct scenario
         return outcome();
     }
 
+    auto
+    dealers_turn(
+        shoe const &s,
+        score const &player_score,
+        dealer_hand const &d,
+        cards const &burn_pile) -> outcome
+    {
+        auto ctx0 = context();
+        auto ctx = context(to_string(d));
+        auto key = std::tie(player_score, d, s, burn_pile);
+        auto imemo = memo_.find(key);
+        if (imemo == memo_.end())
+        {
+            chatter(ctx, "dealer plays");
+            auto o = dealers_turn_impl(ctx, s, player_score, d, burn_pile);
+            imemo = memo_.emplace(key, o).first;
+        }
+        else
+        {
+            chatter(ctx, "cached result: ", imemo->second);
+        }
+        return imemo->second;
+    }
 
     void
     chat(std::ostream *logger)
     {
         chat_ = logger;
+        if (chat_)
+        {
+            memo_.clear();
+            player_memo_.clear();
+        }
     }
 
     struct context
     {
-        friend std::ostream& operator<<(std::ostream& os, context const& co)
+        friend std::ostream &
+        operator<<(
+            std::ostream &os,
+            context const &co)
         {
             os << context_string_;
             return os;
@@ -364,20 +400,20 @@ struct scenario
             context_string_ += c;
         }
 
-        explicit context(std::string const& s)
+        explicit context(std::string const &s)
             : adjust_(s.size())
         {
             context_string_ += s;
         }
 
-        explicit context(const char* p)
+        explicit context(const char *p)
             : adjust_(std::strlen(p))
         {
             context_string_ += p;
         }
 
-        context(context&& other)
-        : adjust_(std::exchange(other.adjust_, 0))
+        context(context &&other)
+            : adjust_(std::exchange(other.adjust_, 0))
         {
         }
 
@@ -390,12 +426,15 @@ struct scenario
     };
 
     template<class...Args>
-    void chatter(context const& ctx, Args&&...args) const
+    void
+    chatter(
+        context const &ctx,
+        Args &&...args) const
     {
         if (not chat_)
             return;
 
-        auto& log = *chat_;
+        auto &log = *chat_;
         log << ctx << ' ';
 
         ((log << args), ...);
@@ -403,7 +442,9 @@ struct scenario
         log << '\n';
     }
 
-    bool recursing() const {
+    bool
+    recursing() const
+    {
         return !context_string_.empty();
     }
 

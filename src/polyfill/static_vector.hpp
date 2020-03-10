@@ -89,6 +89,11 @@ template <class T, std::size_t Capacity> struct static_vector {
       pop_back();
   }
 
+    T const& back() const
+    {
+        return *(end() - 1);
+    }
+
 private:
   auto get() const -> T const * {
     return std::addressof(reinterpret_cast<T const &>(store_));
