@@ -9,6 +9,7 @@
 #include "score.hpp"
 #include "shoe.hpp"
 #include <cassert>
+#include <ostream>
 
 namespace blackjack {
 
@@ -58,22 +59,16 @@ struct scenario_result
         return os << sr.action << " : pays " << sr.payoff();
     }
 
-    void
-    double_down()
-    {
-        invested *= 2;
-        returned *= 2;
-    }
 };
 
 struct scenario
 {
     using result_vector = polyfill::static_vector<scenario_result, 4>;
 
-    using player_key = std::tuple<player_hand, dealer_hand, shoe>;
+    using player_key = std::tuple<player_hand, dealer_hand, shoe, cards /* burn pile */>;
     using player_memo_map = std::unordered_map<player_key, scenario_result, polyfill::universal_hash, polyfill::universal_equal_to>;
 
-    using memo_key = std::tuple<score, dealer_hand, shoe>;
+    using memo_key = std::tuple<score, dealer_hand, shoe, cards /* burn pile */>;
     using memo_map =
     std::unordered_map<memo_key, outcome, polyfill::universal_hash,
         polyfill::universal_equal_to>;
@@ -101,11 +96,15 @@ struct scenario
 
     auto
     hit_player(
-        shoe const &s,
+        shoe s,
         player_hand const &p,
-        dealer_hand const &d)
+        dealer_hand const &d,
+        cards burn_pile)
     -> outcome
     {
+        if (s.exhausted())
+            s += std::move(burn_pile);
+
         polyfill::static_vector<outcome, nof_card_scales> outcomes;
         int total_cards_in_shoe = 0;
         for (auto c : all_card_faces())
@@ -117,7 +116,7 @@ struct scenario
                 auto s2 = s;
                 auto p2 = p;
                 deal_one(s2, p2, c);
-                outcomes.push_back(run(s2, p2, d) * double(avail));
+                outcomes.push_back(run(s2, p2, d, burn_pile) * double(avail));
             }
         }
 
@@ -138,11 +137,14 @@ struct scenario
 
     auto
     hit_player_once(
-        shoe const &s,
+        shoe s,
         player_hand const &p,
-        dealer_hand const &d)
+        dealer_hand const &d,
+        cards burn_pile)
     -> outcome
     {
+        if (s.exhausted())
+            s += std::move(burn_pile);
         polyfill::static_vector<outcome, nof_card_scales> outcomes;
         int total_cards_in_shoe = 0;
         for (auto c : all_card_faces())
@@ -154,7 +156,7 @@ struct scenario
                 auto s2 = s;
                 auto p2 = p;
                 deal_one(s2, p2, c);
-                outcomes.push_back(dealers_turn(s2, score(p2), d) * double(avail));
+                outcomes.push_back(dealers_turn(s2, score(p2), d, burn_pile) * double(avail));
             }
         }
 
@@ -177,35 +179,46 @@ struct scenario
     run(
         shoe const &s,
         player_hand const &p,
-        dealer_hand const &d)
+        dealer_hand const &d,
+        cards const &burn_pile)
     -> scenario_result
     {
+        auto ctx = context();
 
-        auto key = std::tie(p, d, s);
-        auto imemo = player_memo_.find(key);
+        auto key = std::tie(p, d, s, burn_pile);
+        auto imemo = chat_ ? player_memo_.end() : player_memo_.find(key);
         if (imemo == player_memo_.end())
         {
             auto possible_results = polyfill::static_vector<scenario_result, 4>();
 
             if (rules_.may_stick(p))
             {
+                chatter(ctx, "consider stick:");
                 auto &res =
                     possible_results.push_back(scenario_result(player_action::stick));
-                res.update(dealers_turn(s, score(p), d));
+                auto o = dealers_turn(s, score(p), d, burn_pile);
+                chatter(ctx, "would result in :", o);
+                res.update(o);
             }
 
             if (rules_.may_hit(p))
             {
+                chatter(ctx, "consider card:");
                 auto &res =
                     possible_results.push_back(scenario_result(player_action::hit));
-                res.update(hit_player(s, p, d));
+                auto o = hit_player(s, p, d, burn_pile);
+                chatter(ctx, "would result in :", o);
+                res.update(o);
             }
             if (rules_.may_double(p))
             {
+                chatter(ctx, "consider double:");
                 auto &res = possible_results.push_back(
                     scenario_result(player_action::double_down));
-                res.update(hit_player_once(s, p, d));
-                res.double_down();
+                auto o = hit_player_once(s, p, d, burn_pile);
+                o.double_down();
+                chatter(ctx, "would result in :", o);
+                res.update(o);
             }
             /*
             if (r.may_split(p))
@@ -224,17 +237,18 @@ struct scenario
         hand &d,
         card_scale cs) -> void
     {
-        s[cs] -= 1;
-        d[cs] += 1;
+        s -= cs;
+        d += cs;
     }
 
     auto
     dealers_turn(
         shoe const &s,
         score const &player_score,
-        dealer_hand const &d) -> outcome
+        dealer_hand const &d,
+        cards const &burn_pile) -> outcome
     {
-        auto key = std::tie(player_score, d, s);
+        auto key = std::tie(player_score, d, s, burn_pile);
         auto imemo = memo_.find(key);
         if (imemo != memo_.end())
         {
@@ -251,10 +265,13 @@ struct scenario
                 {
                     total_cards_in_shoe += avail;
 
+                    auto bp2 = burn_pile;
                     auto s2 = s;
+                    if (s2.exhausted())
+                        s2 += std::move(bp2);
                     auto d2 = d;
                     deal_one(s2, d2, to_card_scale(i));
-                    outcomes.push_back(dealers_turn(s2, player_score, d2) *
+                    outcomes.push_back(dealers_turn(s2, player_score, d2, bp2) *
                                        double(avail));
                 }
             }
@@ -292,10 +309,67 @@ struct scenario
         return outcome();
     }
 
+
+    void
+    chat(std::ostream *logger)
+    {
+        chat_ = logger;
+    }
+
+    struct context
+    {
+        friend std::ostream& operator<<(std::ostream& os, context const& co)
+        {
+            os << std::string(co.depth_, ' ');
+            return os;
+        }
+
+        context()
+        : depth_(context_depth_)
+        , adjust_(2)
+        {
+            context_depth_ += adjust_;
+        }
+
+        context(context&& other)
+        : depth_(other.depth_)
+        , adjust_(other.adjust_)
+        {
+            other.adjust_ = 0;
+        }
+
+        ~context()
+        {
+            context_depth_ -= adjust_;
+        }
+
+        int depth_;
+        int adjust_;
+    };
+
+    template<class...Args>
+    void chatter(context const& ctx, Args&&...args) const
+    {
+        if (not chat_)
+            return;
+
+        auto& log = *chat_;
+        log << ctx;
+
+        ((log << args), ...);
+
+        log << '\n';
+    }
+
+
     rules const &rules_;
     memo_map memo_;
 
     player_memo_map player_memo_;
+    std::ostream *chat_ = nullptr;
+    static thread_local int context_depth_;
 };
+
+thread_local inline int scenario::context_depth_ = 0;
 
 } // namespace blackjack

@@ -59,6 +59,9 @@ operator<<(
 struct rules
 {
     bool allow_double_after_split = true;
+    bool dealer_draw_on_soft_17 = true;
+    int no_of_decks = 8;
+    int cards_behind_cut = no_of_decks * 52 / 6;
 
     auto
     compute_result(
@@ -85,6 +88,7 @@ struct rules
             return result::dealer_win;
         return result::draw;
     }
+
     auto
     compute_result(
         player_hand const &player,
@@ -108,7 +112,9 @@ struct rules
     }
 
     auto
-    payoff(score const& player_score, score const& dealer_score) const -> double
+    payoff(
+        score const &player_score,
+        score const &dealer_score) const -> double
     {
         return payoff(compute_result(player_score, dealer_score));
     }
@@ -130,30 +136,55 @@ struct rules
     bool
     may_hit(player_hand const &player) const
     {
-      auto s = score(player);
-      return not s.blackjack() and not s.bust();
+        auto s = score(player);
+        return not s.blackjack() and not s.bust();
     }
 
     bool
     may_double(player_hand const &player) const
     {
-        if (allow_double_after_split and player.count() == 1)
-            return true;
+        if (player.after_split() and not allow_double_after_split)
+            return false;
 
         return may_hit(player);
     }
 
-    auto select_dealer_action(score const& dealer_score) const -> dealer_action
+    auto
+    select_dealer_action(score const &dealer_score) const -> dealer_action
     {
         if (dealer_score.value() > 16)
-            return dealer_action::stand;
+        {
+            if (dealer_draw_on_soft_17 and dealer_score.value() == 17 and dealer_score.soft())
+                return dealer_action::hit;
+            else
+                return dealer_action::stand;
+        }
         else
             return dealer_action::hit;
     }
 
-    auto select_dealer_action(dealer_hand const& hand) const -> dealer_action
+    auto
+    select_dealer_action(dealer_hand const &hand) const -> dealer_action
     {
         return select_dealer_action(score(hand));
+    }
+
+    friend std::ostream &
+    operator<<(
+        std::ostream &os,
+        rules const &r)
+    {
+        auto yesno = [](bool b) -> const char * {
+            return b ? "yes" : "no";
+        };
+
+        os << "rules:\n"
+              "======"
+           << "\ndealer draws on soft 17: " << yesno(r.dealer_draw_on_soft_17)
+           << "\nmay double after split : " << yesno(r.allow_double_after_split)
+           << "\nnumber of decks        : " << r.no_of_decks
+           << "\ncards behind cut       : " << r.cards_behind_cut;
+        return os;
     }
 
 };

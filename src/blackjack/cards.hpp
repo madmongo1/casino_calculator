@@ -127,10 +127,16 @@ struct cards
     using const_iterator = store_type::const_iterator;
     using value_type = store_type::value_type;
 
+    struct modifier
+    {
+        cards *cards_;
+        card_scale which_;
+    };
+
     constexpr cards(std::initializer_list<card_scale> list) : store_{}
     {
         for (auto c : list)
-            add(c);
+            adjust(c);
     }
 
     template<class... CardScale,
@@ -139,10 +145,12 @@ struct cards
     constexpr
     cards(CardScale... cs) : store_{}
     {
-        (add(cs), ...);
+        (adjust(cs), ...);
     }
 
-    constexpr cards() : store_{}
+    constexpr cards()
+        : store_{}
+        , count_(0)
     {}
 
     int
@@ -151,7 +159,9 @@ struct cards
 
     int
     count() const
-    { return std::accumulate(store_.begin(), store_.end(), 0); }
+    { return count_; }
+
+    bool empty() const { return count() == 0; }
 
     int const &
     operator[](card_scale scale) const
@@ -159,10 +169,11 @@ struct cards
         return store_[to_index(scale)];
     }
 
+    /*
     int &
     operator[](card_scale scale)
     { return store_[to_index(scale)]; }
-
+*/
     auto
     begin() const -> const_iterator
     { return store_.begin(); }
@@ -172,25 +183,37 @@ struct cards
     { return store_.end(); }
 
     void
-    add(
+    adjust(
         card_scale cs,
-        std::size_t n = 1)
-    { store_[to_index(cs)] += n; }
+        int n = 1)
+    {
+        store_[to_index(cs)] += n;
+        count_ += n;
+    }
 
     cards &
     operator-=(card_scale c)
     {
-        auto &x = this->operator[](c);
-        assert(x > 0);
-        --x;
+        adjust(c, -1);
         return *this;
     }
 
     cards &
     operator+=(card_scale c)
     {
-        auto &x = this->operator[](c);
-        ++x;
+        adjust(c);
+        return *this;
+    }
+
+    cards &
+    operator+=(cards&& other)
+    {
+        for (auto card : all_card_faces())
+        {
+            auto cnt = other.count(card);
+            adjust(card, cnt);
+            other.adjust(card, -cnt);
+        }
         return *this;
     }
 
@@ -201,16 +224,21 @@ private:
         cards const &c) -> std::ostream &
     {
         auto sep = "";
-        auto first = c.store_.rbegin();
-        auto last = c.store_.rend();
-        while (first != last)
+        if (c.count() == 0)
         {
-            auto count = *first++;
-            auto card = to_card_scale(std::distance(c.store_.begin(), first.base()));
-            while (count--)
+            os << "empty";
+        }
+        else
+        {
+            for (auto i = nof_card_scales ; i-- ; )
             {
-                os << sep << card;
-                sep = ", ";
+                auto card = to_card_scale(i);
+                auto cnt = c.count(card);
+                if (cnt)
+                {
+                    os << sep << card << "x" << c.count(card);
+                    sep = ", ";
+                }
             }
         }
         return os;
@@ -233,6 +261,7 @@ private:
 
 protected:
     std::array<int, nof_card_scales> store_;
+    int count_ = 0;
 };
 
 struct draw_probability
