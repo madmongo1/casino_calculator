@@ -10,6 +10,7 @@
 #include "shoe.hpp"
 #include <cassert>
 #include <ostream>
+#include <iostream>
 
 namespace blackjack {
 
@@ -103,24 +104,48 @@ struct scenario
     -> outcome
     {
         if (s.exhausted())
-            s += std::move(burn_pile);
+        {
+            chatter(context(), "shoe is exhausted so shuffle and lose count.");
+            s += burn_pile;
+            burn_pile.clear();
+        }
 
         polyfill::static_vector<outcome, nof_card_scales> outcomes;
         int total_cards_in_shoe = 0;
         for (auto c : all_card_faces())
         {
-            if (auto avail = s[c];avail)
+            auto ctx = context(to_char(c));
+            auto prob = s.probability(c);
+            if (prob)
             {
-                total_cards_in_shoe += avail;
-
                 auto s2 = s;
                 auto p2 = p;
                 deal_one(s2, p2, c);
-                outcomes.push_back(run(s2, p2, d, burn_pile) * double(avail));
+                auto scr = score(p2);
+                chatter(ctx, "deal ", c, " with chance ", polyfill::percentage(prob), " scores ", scr);
+                auto handle_score = [&]() -> outcome
+                {
+                    if (!scr.bust())
+                    {
+                        auto o = run_impl(ctx, s2, p2, d, burn_pile);
+                        o *= double(prob);
+                        chatter(ctx, "results in : ", o);
+                        return outcome(o);
+                    }
+                    else
+                    {
+                        auto o = outcome(1, 0);
+                        o *= prob;
+                        return o;
+                    }
+                };
+                outcomes.push_back(handle_score());
+            }
+            else
+            {
+                chatter(ctx, "no ", c, " in shoe");
             }
         }
-
-        auto scale = 1.0 / double(total_cards_in_shoe);
 
         double invested = 0.0;
         double pay = 0.0;
@@ -129,8 +154,6 @@ struct scenario
             invested += o.invested * o.probability;
             pay += o.returned * o.probability;
         }
-        invested *= scale;
-        pay *= scale;
 
         return outcome(invested, pay);
     }
@@ -175,16 +198,15 @@ struct scenario
         return outcome(invested, pay);
     }
 
-    inline auto
-    run(
-        shoe const &s,
-        player_hand const &p,
-        dealer_hand const &d,
-        cards const &burn_pile)
-    -> scenario_result
-    {
-        auto ctx = context();
+    struct context;
 
+    inline auto run_impl(context const& ctx,
+        shoe const &s,
+                         player_hand const &p,
+                         dealer_hand const &d,
+                         cards const &burn_pile)
+                         -> scenario_result
+    {
         auto key = std::tie(p, d, s, burn_pile);
         auto imemo = chat_ ? player_memo_.end() : player_memo_.find(key);
         if (imemo == player_memo_.end())
@@ -229,6 +251,18 @@ struct scenario
         }
 
         return imemo->second;
+    }
+
+    inline auto
+    run(
+        shoe const &s,
+        player_hand const &p,
+        dealer_hand const &d,
+        cards const &burn_pile)
+    -> scenario_result
+    {
+        auto ctx = recursing() ? context() : context(to_string(p));
+        return run_impl(ctx, s, p, d, burn_pile);
     }
 
     auto
@@ -320,30 +354,38 @@ struct scenario
     {
         friend std::ostream& operator<<(std::ostream& os, context const& co)
         {
-            os << std::string(co.depth_, ' ');
+            os << context_string_;
             return os;
         }
 
-        context()
-        : depth_(context_depth_)
-        , adjust_(2)
+        explicit context(char c = ' ')
+            : adjust_(1)
         {
-            context_depth_ += adjust_;
+            context_string_ += c;
+        }
+
+        explicit context(std::string const& s)
+            : adjust_(s.size())
+        {
+            context_string_ += s;
+        }
+
+        explicit context(const char* p)
+            : adjust_(std::strlen(p))
+        {
+            context_string_ += p;
         }
 
         context(context&& other)
-        : depth_(other.depth_)
-        , adjust_(other.adjust_)
+        : adjust_(std::exchange(other.adjust_, 0))
         {
-            other.adjust_ = 0;
         }
 
         ~context()
         {
-            context_depth_ -= adjust_;
+            context_string_.erase(context_string_.end() - adjust_, context_string_.end());
         }
 
-        int depth_;
         int adjust_;
     };
 
@@ -354,11 +396,15 @@ struct scenario
             return;
 
         auto& log = *chat_;
-        log << ctx;
+        log << ctx << ' ';
 
         ((log << args), ...);
 
         log << '\n';
+    }
+
+    bool recursing() const {
+        return !context_string_.empty();
     }
 
 
@@ -367,9 +413,9 @@ struct scenario
 
     player_memo_map player_memo_;
     std::ostream *chat_ = nullptr;
-    static thread_local int context_depth_;
+    static thread_local std::string context_string_;
 };
 
-thread_local inline int scenario::context_depth_ = 0;
+thread_local inline std::string scenario::context_string_ = "";
 
 } // namespace blackjack

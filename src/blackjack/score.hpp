@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cards.hpp"
+#include <ostream>
 
 namespace blackjack {
 
@@ -40,7 +41,7 @@ struct score
 
     bool
     soft() const
-    { return soft_ and not bust(); }
+    { return soft_ and value_ <= 21; }
 
     bool
     blackjack() const
@@ -60,6 +61,17 @@ struct score
       using tuple_type = std::decay_t<decltype(s.as_tuple())>;
       auto op = boost::hash<tuple_type>();
       return op(s.as_tuple());
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, score const& s)
+    {
+        if (s.bust())
+            return os << "bust";
+        if (s.blackjack())
+            return os << "blackjack";
+        if (s.soft())
+            os << "soft ";
+        return os << s.value();
     }
 
 private:

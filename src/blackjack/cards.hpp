@@ -20,35 +20,30 @@ enum card_scale
     ace
 };
 
+inline char to_char(card_scale card)
+{
+    switch (card)
+    {
+    case card_scale::two:return '2';
+    case card_scale::three:return '3';
+    case card_scale::four:return '4';
+    case card_scale::five:return '5';
+    case card_scale::six:return '6';
+    case card_scale::seven:return '7';
+    case card_scale::eight:return'8';
+    case card_scale::nine:return '9';
+    case card_scale::ten:return 'T';
+    case card_scale::ace:return 'A';
+    }
+    return '?';
+}
+
 inline auto
 operator<<(
     std::ostream &os,
     card_scale cs) -> std::ostream &
 {
-    switch (cs)
-    {
-    case card_scale::two:os << '2';
-        break;
-    case card_scale::three:os << '3';
-        break;
-    case card_scale::four:os << '4';
-        break;
-    case card_scale::five:os << '5';
-        break;
-    case card_scale::six:os << '6';
-        break;
-    case card_scale::seven:os << '7';
-        break;
-    case card_scale::eight:os << '8';
-        break;
-    case card_scale::nine:os << '9';
-        break;
-    case card_scale::ten:os << 'T';
-        break;
-    case card_scale::ace:os << 'A';
-        break;
-    }
-    return os;
+    return os << to_char(cs);
 }
 
 constexpr inline auto
@@ -215,6 +210,19 @@ struct cards
             other.adjust(card, -cnt);
         }
         return *this;
+    }
+
+    cards &
+    operator+=(cards const& other)
+    {
+        for (auto card : all_card_faces())
+            adjust(card, other.count(card));
+        return *this;
+    }
+
+    void clear()
+    {
+        std::fill(store_.begin(), store_.end(), 0);
     }
 
 private:
